@@ -153,11 +153,22 @@ const rangeIsEmpty = range => !range.toString().trim()
 // Text nodes are split at sentence boundaries so that every block range
 // aligns with node edges — this prevents the text walker from including
 // text outside the sentence in word marks.
-function* getPDFSentenceBlocks(doc, textLayer) {
+function* getPDFSentenceBlocks(doc, textLayer, nodeFilter) {
+    // Text under a rejected element must not take part in the blocks at all:
+    // a sentence that lies within one such text node would become a block of
+    // its own, and cloning that block for speech drops the ancestor the
+    // filter rejects — the sentence would be spoken after all.
+    const isRejected = node => {
+        if (!nodeFilter) return false
+        if (nodeFilter(node) === NodeFilter.FILTER_REJECT) return true
+        for (let el = node.parentNode; el && el !== textLayer; el = el.parentNode)
+            if (nodeFilter(el) === NodeFilter.FILTER_REJECT) return true
+        return false
+    }
     const collectNodes = () => {
         const w = doc.createTreeWalker(textLayer, NodeFilter.SHOW_TEXT)
         const res = []
-        for (let n = w.nextNode(); n; n = w.nextNode()) res.push(n)
+        for (let n = w.nextNode(); n; n = w.nextNode()) if (!isRejected(n)) res.push(n)
         return res
     }
 
@@ -220,7 +231,7 @@ function* getBlocks(doc, nodeFilter) {
     // For PDF text layers, yield sentence-level blocks
     const textLayer = root.querySelector?.('.textLayer')
     if (textLayer) {
-        yield* getPDFSentenceBlocks(doc, textLayer)
+        yield* getPDFSentenceBlocks(doc, textLayer, nodeFilter)
         return
     }
 
